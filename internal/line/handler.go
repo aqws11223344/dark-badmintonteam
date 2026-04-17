@@ -111,6 +111,26 @@ func sourceUserID(src webhook.SourceInterface) string {
 	return ""
 }
 
+// stripAnyPrefix 若 text 開頭是任一 prefix，回傳去掉後的 trim 內容與 true。
+func stripAnyPrefix(text string, prefixes ...string) (string, bool) {
+	for _, p := range prefixes {
+		if strings.HasPrefix(text, p) {
+			return strings.TrimSpace(strings.TrimPrefix(text, p)), true
+		}
+	}
+	return "", false
+}
+
+// matchesAny 檢查 text 是否等於任一候選字串。
+func matchesAny(text string, candidates ...string) bool {
+	for _, c := range candidates {
+		if text == c {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Handler) handleText(replyToken, text, userID string) {
 	text = strings.TrimSpace(text)
 	ctx := context.Background()
@@ -121,14 +141,14 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 	case text == "/addme":
 		h.handleBootstrap(ctx, replyToken, userID)
 
-	case text == "/我的ID" || text == "/myid":
+	case matchesAny(text, "/我的ID", "/myid", "/id"):
 		if userID == "" {
 			h.reply(replyToken, "（拿不到你的 ID，請先加 bot 為好友）")
 			return
 		}
 		h.reply(replyToken, "你的 LINE User ID：\n"+userID)
 
-	case text == "/登記" || text == "/add":
+	case matchesAny(text, "/登記", "/add", "/register"):
 		if h.cfg.LIFFID == "" {
 			h.reply(replyToken, "尚未設定 LIFF_ID")
 			return
@@ -136,7 +156,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		url := fmt.Sprintf("https://liff.line.me/%s", h.cfg.LIFFID)
 		h.reply(replyToken, "🏸 成績登記\n👉 "+url+"\n\n從下拉選擇賽事後填寫")
 
-	case text == "/所有連結" || text == "/links" || text == "/all":
+	case matchesAny(text, "/所有連結", "/links", "/all"):
 		if h.cfg.LIFFID == "" {
 			h.reply(replyToken, "尚未設定 LIFF_ID")
 			return
@@ -158,10 +178,10 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, strings.Join(lines, "\n"))
 
-	case strings.HasPrefix(text, "/開單"):
-		name := strings.TrimSpace(strings.TrimPrefix(text, "/開單"))
+	case strings.HasPrefix(text, "/開單") || strings.HasPrefix(text, "/open"):
+		name, _ := stripAnyPrefix(text, "/開單", "/open")
 		if name == "" {
-			h.reply(replyToken, "用法：/開單 2026清晨杯")
+			h.reply(replyToken, "用法：/開單 2026清晨杯（或 /open 2026清晨杯）")
 			return
 		}
 		if !h.isAdmin(ctx, userID) {
@@ -173,10 +193,10 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.replyWithLIFF(replyToken, name)
 
-	case strings.HasPrefix(text, "/新增賽事"):
-		name := strings.TrimSpace(strings.TrimPrefix(text, "/新增賽事"))
+	case strings.HasPrefix(text, "/新增賽事") || strings.HasPrefix(text, "/addt"):
+		name, _ := stripAnyPrefix(text, "/新增賽事", "/addt")
 		if name == "" {
-			h.reply(replyToken, "用法：/新增賽事 2026清晨杯")
+			h.reply(replyToken, "用法：/新增賽事 2026清晨杯（或 /addt 2026清晨杯）")
 			return
 		}
 		if !h.isAdmin(ctx, userID) {
@@ -189,10 +209,10 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, "✅ 已新增賽事：\n"+name)
 
-	case strings.HasPrefix(text, "/刪除賽事"):
-		name := strings.TrimSpace(strings.TrimPrefix(text, "/刪除賽事"))
+	case strings.HasPrefix(text, "/刪除賽事") || strings.HasPrefix(text, "/delt"):
+		name, _ := stripAnyPrefix(text, "/刪除賽事", "/delt")
 		if name == "" {
-			h.reply(replyToken, "用法：/刪除賽事 2026清晨杯")
+			h.reply(replyToken, "用法：/刪除賽事 2026清晨杯（或 /delt 2026清晨杯）")
 			return
 		}
 		if !h.isAdmin(ctx, userID) {
@@ -206,10 +226,10 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		h.reply(replyToken, "🗑 已刪除賽事：\n"+name)
 
 	// ===== 管理員管理 =====
-	case strings.HasPrefix(text, "/新增管理員"):
-		target := strings.TrimSpace(strings.TrimPrefix(text, "/新增管理員"))
+	case strings.HasPrefix(text, "/新增管理員") || strings.HasPrefix(text, "/addadmin"):
+		target, _ := stripAnyPrefix(text, "/新增管理員", "/addadmin")
 		if target == "" {
-			h.reply(replyToken, "用法：/新增管理員 Uxxxxxxxx（該使用者的 LINE User ID）")
+			h.reply(replyToken, "用法：/新增管理員 Uxxxxxxxx（或 /addadmin Uxxxxxxxx）")
 			return
 		}
 		if !h.isAdmin(ctx, userID) {
@@ -222,10 +242,10 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, "✅ 已新增管理員：\n"+target)
 
-	case strings.HasPrefix(text, "/刪除管理員"):
-		target := strings.TrimSpace(strings.TrimPrefix(text, "/刪除管理員"))
+	case strings.HasPrefix(text, "/刪除管理員") || strings.HasPrefix(text, "/deladmin"):
+		target, _ := stripAnyPrefix(text, "/刪除管理員", "/deladmin")
 		if target == "" {
-			h.reply(replyToken, "用法：/刪除管理員 Uxxxxxxxx")
+			h.reply(replyToken, "用法：/刪除管理員 Uxxxxxxxx（或 /deladmin Uxxxxxxxx）")
 			return
 		}
 		if !h.isAdmin(ctx, userID) {
@@ -249,7 +269,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		url := "https://docs.google.com/spreadsheets/d/" + h.cfg.SheetsID + "/edit"
 		h.reply(replyToken, "📊 成績試算表：\n"+url)
 
-	case text == "/管理員列表":
+	case matchesAny(text, "/管理員列表", "/admins"):
 		if !h.isAdmin(ctx, userID) {
 			h.reply(replyToken, "⚠️ 只有管理員可以查看")
 			return
@@ -273,7 +293,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, strings.Join(lines, "\n"))
 
-	case text == "/賽事列表":
+	case matchesAny(text, "/賽事列表", "/list", "/tournaments"):
 		list, err := h.cfg.Store.ListTournaments(ctx)
 		if err != nil {
 			h.reply(replyToken, "❌ 查詢失敗："+err.Error())
@@ -285,7 +305,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, "📋 目前賽事列表：\n"+strings.Join(list, "\n"))
 
-	case text == "/help" || text == "/說明":
+	case matchesAny(text, "/help", "/說明"):
 		h.reply(replyToken, helpText)
 
 	case text == "/dhelp":
@@ -307,24 +327,50 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 	}
 }
 
-const helpText = `🏸 羽球成績 Bot 指令：
+const helpText = `🏸 羽球成績 Bot 指令
 
-/登記 或 /add     → 取得登記連結（自己從下拉選賽事）
-/所有連結 或 /all → 列出所有賽事的專屬登記連結
-/賽事列表         → 顯示目前所有賽事
-/賽事名稱         → 查詢該場比賽所有得獎紀錄（例：/清晨盃）
-/我的ID           → 顯示你的 LINE User ID
-/說明             → 顯示這份說明`
+/登記、/add、/register
+→ 取得登記連結（自己選賽事）
 
-const adminHelpText = `🔐 管理員指令：
+/所有連結、/all、/links
+→ 列出所有賽事的專屬連結
 
-/開單 賽事名稱     → 發起成績登記（會自動加入列表）
-/新增賽事 XXX      → 新增賽事到表單下拉
-/刪除賽事 XXX      → 從表單下拉移除
-/表單 或 /sheet    → 取得 Google 試算表連結
-/新增管理員 Uxxx   → 新增管理員
-/刪除管理員 Uxxx   → 移除管理員
-/管理員列表        → 顯示目前所有管理員`
+/賽事列表、/list、/tournaments
+→ 顯示目前所有賽事
+
+/賽事名稱
+→ 查詢該場比賽的得獎紀錄（例：/清晨盃）
+
+/我的ID、/myid、/id
+→ 顯示你的 LINE User ID
+
+/help、/說明
+→ 顯示這份說明`
+
+const adminHelpText = `🔐 管理員指令
+
+/開單 <賽事>、/open <賽事>
+→ 發起成績登記（會自動加入列表）
+
+/新增賽事 <賽事>、/addt <賽事>
+→ 新增賽事到下拉
+
+/刪除賽事 <賽事>、/delt <賽事>
+→ 從下拉移除
+
+/表單、/sheet
+→ 取得 Google 試算表連結
+
+/新增管理員 <Uxxx>、/addadmin <Uxxx>
+→ 新增管理員
+
+/刪除管理員 <Uxxx>、/deladmin <Uxxx>
+→ 移除管理員
+
+/管理員列表、/admins
+→ 顯示所有管理員
+
+/dhelp → 顯示這份說明`
 
 // handleBootstrap 只有在 Store 沒有任何 admin 時才會真的執行，否則靜默。
 func (h *Handler) handleBootstrap(ctx context.Context, replyToken, userID string) {
