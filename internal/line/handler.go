@@ -246,9 +246,9 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 	case text == "/help" || text == "/說明":
 		h.reply(replyToken, helpText)
 
-	case text == "/darkhelp":
+	case text == "/dhelp":
 		if !h.isAdmin(ctx, userID) {
-			// 假裝不認識這個指令，不洩漏管理員指令存在
+			// 假裝不認識這個指令
 			return
 		}
 		h.reply(replyToken, adminHelpText)
@@ -316,7 +316,7 @@ func (h *Handler) handleBootstrap(ctx context.Context, replyToken, userID string
 	if name != "" {
 		msg += "：" + name
 	}
-	h.reply(replyToken, msg+"\n\n輸入 /darkhelp 查看管理員指令")
+	h.reply(replyToken, msg+"\n\n輸入 /dhelp 查看管理員指令")
 }
 
 // maybeQueryTournament 如果 name 是已存在的賽事，回傳該場比賽所有紀錄；否則靜默。
