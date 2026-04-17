@@ -128,12 +128,11 @@ func (h *Handler) GetOptions(c *gin.Context) {
 
 type submitRequest struct {
 	IDToken    string `json:"id_token"`  // LIFF 拿到的 ID token（未來驗證用）
-	UserID     string `json:"user_id"`   // LINE userId（系統識別用）
+	UserID     string `json:"user_id"`   // LINE userId
 	UserName   string `json:"user_name"` // LINE 顯示名稱（輸入人）
 	PlayerName string `json:"player_name"`
 	Tournament string `json:"tournament"`
-	AgeGroup   string `json:"age_group"`
-	Class      string `json:"class"`
+	Category   string `json:"category"`
 	Event      string `json:"event"`
 	Partner    string `json:"partner"`
 	Rank       string `json:"rank"`
@@ -157,8 +156,7 @@ func (h *Handler) SubmitResult(c *gin.Context) {
 		UserName:    req.UserName,
 		PlayerName:  req.PlayerName,
 		Tournament:  req.Tournament,
-		AgeGroup:    req.AgeGroup,
-		Class:       req.Class,
+		Category:    req.Category,
 		Event:       req.Event,
 		Partner:     req.Partner,
 		Rank:        req.Rank,

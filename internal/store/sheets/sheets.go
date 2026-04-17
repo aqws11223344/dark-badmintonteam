@@ -1,11 +1,7 @@
-// Package sheets 把成績寫入 Google Sheets，方便教練/隊長直接看試算表。
-//
-// 分頁設計：每年一個分頁（例：2026、2027），自動建立。
-// 欄位（A-J，共 10 欄）：
-//   A: 時間 | B: 輸入人 | C: 姓名 | D: 賽事 | E: 年齡組
-//   F: 級別 | G: 項目 | H: 搭檔 | I: 名次 | J: 備註
-//
-// ID 和 UserID 不寫入 Sheet（太雜；內部識別另有機制）。
+// Package sheets 把成績寫入 Google Sheets。每年一個分頁自動建立。
+// 欄位（A-I，共 9 欄）：
+//   A: 時間 | B: 輸入人 | C: 姓名 | D: 賽事 | E: 組別
+//   F: 項目 | G: 搭檔 | H: 名次 | I: 備註
 package sheets
 
 import (
@@ -22,7 +18,7 @@ import (
 	"github.com/aqws11223344/dark-badmintonteam/internal/domain"
 )
 
-const colRange = "A:J" // 10 欄
+const colRange = "A:I" // 9 欄
 
 type Store struct {
 	svc     *sheets.Service
@@ -102,7 +98,7 @@ func (s *Store) ensureSheet(ctx context.Context, name string) error {
 }
 
 func (s *Store) ensureHeader(ctx context.Context, tab string) error {
-	headerRange := fmt.Sprintf("%s!A1:J1", tab)
+	headerRange := fmt.Sprintf("%s!A1:I1", tab)
 	resp, err := s.svc.Spreadsheets.Values.Get(s.sheetID, headerRange).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("get header: %w", err)
@@ -110,8 +106,8 @@ func (s *Store) ensureHeader(ctx context.Context, tab string) error {
 	if len(resp.Values) > 0 && len(resp.Values[0]) > 0 {
 		return nil
 	}
-	header := []any{"時間", "輸入人", "姓名", "賽事", "年齡組",
-		"級別", "項目", "搭檔", "名次", "備註"}
+	header := []any{"時間", "輸入人", "姓名", "賽事", "組別",
+		"項目", "搭檔", "名次", "備註"}
 	_, err = s.svc.Spreadsheets.Values.Update(s.sheetID, headerRange, &sheets.ValueRange{
 		Values: [][]any{header},
 	}).ValueInputOption("RAW").Context(ctx).Do()
@@ -126,7 +122,7 @@ func (s *Store) SaveResult(ctx context.Context, r domain.MatchResult) error {
 	row := []any{
 		r.SubmittedAt.Format("2006-01-02 15:04:05"),
 		r.UserName, r.PlayerName,
-		r.Tournament, r.AgeGroup, r.Class, r.Event,
+		r.Tournament, r.Category, r.Event,
 		r.Partner, r.Rank, r.Note,
 	}
 	appendArea := fmt.Sprintf("%s!%s", tab, colRange)
@@ -137,14 +133,13 @@ func (s *Store) SaveResult(ctx context.Context, r domain.MatchResult) error {
 }
 
 func (s *Store) ListByUser(ctx context.Context, userID string) ([]domain.MatchResult, error) {
-	// 注：Sheet 不再存 UserID，此查詢只能靠 UserName 匹配
 	all, err := s.readAll(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []domain.MatchResult
 	for _, r := range all {
-		if r.UserName == userID { // 暫用 name 匹配
+		if r.UserName == userID {
 			out = append(out, r)
 		}
 	}
@@ -177,7 +172,7 @@ func (s *Store) readAll(ctx context.Context) ([]domain.MatchResult, error) {
 		if !isYearTab(title) {
 			continue
 		}
-		readRange := fmt.Sprintf("%s!A2:J", title)
+		readRange := fmt.Sprintf("%s!A2:I", title)
 		resp, err := s.svc.Spreadsheets.Values.Get(s.sheetID, readRange).Context(ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", title, err)
@@ -209,12 +204,11 @@ func rowToResult(row []any) domain.MatchResult {
 		UserName:   get(1),
 		PlayerName: get(2),
 		Tournament: get(3),
-		AgeGroup:   get(4),
-		Class:      get(5),
-		Event:      get(6),
-		Partner:    get(7),
-		Rank:       get(8),
-		Note:       get(9),
+		Category:   get(4),
+		Event:      get(5),
+		Partner:    get(6),
+		Rank:       get(7),
+		Note:       get(8),
 	}
 }
 

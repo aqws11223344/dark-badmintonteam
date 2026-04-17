@@ -28,8 +28,6 @@
   }
   button.secondary { background: #eee; color: #333; }
   button:disabled { opacity: .5; }
-  .row { display: flex; gap: 8px; }
-  .row > * { flex: 1; }
   .toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
     background: #222; color: #fff; padding: 10px 16px; border-radius: 24px; font-size: 14px;
@@ -48,25 +46,17 @@
 
 <form id="form" class="card">
   <label>姓名 <span style="color:#e00">*</span></label>
-  <input name="player_name" required placeholder="例：香菇、阿強" />
+  <input name="player_name" required placeholder="例：Hans" />
   <div class="hint">可以填本名或球場綽號</div>
 
   <label>賽事 <span style="color:#e00">*</span></label>
-  <input name="tournament" list="tournaments" required placeholder="例：2026清晨杯" />
+  <input name="tournament" list="tournaments" required placeholder="例：清晨盃" />
   <datalist id="tournaments"></datalist>
 
-  <div class="row">
-    <div>
-      <label>年齡組</label>
-      <input name="age_group" list="age_groups" placeholder="例：30歲組、29下、未分組" />
-      <datalist id="age_groups"></datalist>
-    </div>
-    <div>
-      <label>級別</label>
-      <input name="class" list="classes" placeholder="例：公開、社會、甲組" />
-      <datalist id="classes"></datalist>
-    </div>
-  </div>
+  <label>組別</label>
+  <input name="category" list="categories" placeholder="例：公開" />
+  <datalist id="categories"></datalist>
+  <div class="hint">可自行輸入組別</div>
 
   <label>項目 <span style="color:#e00">*</span></label>
   <select name="event" required></select>
@@ -80,7 +70,7 @@
   <select name="rank" required></select>
 
   <label>備註（選填）</label>
-  <textarea name="note" placeholder="例：四強敗給 XX 隊"></textarea>
+  <textarea name="note"></textarea>
 
   <button type="submit" id="submit-btn">送出</button>
   <button type="button" class="secondary" id="another-btn" style="display:none">再新增一筆</button>
@@ -116,9 +106,8 @@ async function init() {
   const params = new URLSearchParams(location.search);
   const tournamentFromURL = params.get("t") || "";
 
-  // 先抓後端設定（LIFF ID + 選項）
   const cfg = await fetch("/api/options").then(r => r.json());
-  const opts = cfg.options || cfg; // 相容舊格式
+  const opts = cfg.options || cfg;
   const liffId = cfg.liff_id;
 
   try {
@@ -136,11 +125,9 @@ async function init() {
     me = { userId: "test-user", displayName: "測試員" };
   }
 
-  // 賽事：如果 URL 帶了，預填到 input
   if (tournamentFromURL) form.elements["tournament"].value = tournamentFromURL;
   fillDatalist("tournaments", opts.tournaments);
-  fillDatalist("age_groups", opts.age_groups);
-  fillDatalist("classes", opts.classes);
+  fillDatalist("categories", opts.categories);
 
   fillSelect("event", opts.events);
   fillSelect("rank", opts.ranks);
@@ -166,8 +153,7 @@ form.addEventListener("submit", async (e) => {
     user_name: me.displayName,
     player_name: (fd.get("player_name") || "").trim(),
     tournament: (fd.get("tournament") || "").trim(),
-    age_group: (fd.get("age_group") || "").trim(),
-    class: (fd.get("class") || "").trim(),
+    category: (fd.get("category") || "").trim(),
     event: fd.get("event"),
     partner: (fd.get("partner") || "").trim(),
     rank: fd.get("rank"),
@@ -192,7 +178,7 @@ form.addEventListener("submit", async (e) => {
 });
 
 $("#another-btn").addEventListener("click", () => {
-  // 保留姓名、賽事、年齡組、級別；清空項目相關欄位
+  // 保留姓名、賽事、組別；清空其他
   ["partner", "note"].forEach(n => form.elements[n].value = "");
   form.elements["event"].selectedIndex = 0;
   form.elements["rank"].selectedIndex = 0;

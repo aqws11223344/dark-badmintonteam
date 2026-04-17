@@ -30,7 +30,7 @@ func (m *memoryStore) SaveResult(_ context.Context, r domain.MatchResult) error 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r.ID == "" {
-		r.ID = r.UserID + "|" + r.Tournament + "|" + r.AgeGroup + "|" + r.Class + "|" + r.Event
+		r.ID = r.UserID + "|" + r.Tournament + "|" + r.Category + "|" + r.Event
 	}
 	m.data[r.ID] = r
 	return nil
