@@ -135,6 +135,28 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		url := fmt.Sprintf("https://liff.line.me/%s", h.cfg.LIFFID)
 		h.reply(replyToken, "🏸 成績登記\n👉 "+url+"\n\n從下拉選擇賽事後填寫")
 
+	case text == "/所有連結" || text == "/links" || text == "/all":
+		if h.cfg.LIFFID == "" {
+			h.reply(replyToken, "尚未設定 LIFF_ID")
+			return
+		}
+		tournaments, err := h.cfg.Store.ListTournaments(ctx)
+		if err != nil {
+			h.reply(replyToken, "❌ 查詢失敗："+err.Error())
+			return
+		}
+		if len(tournaments) == 0 {
+			h.reply(replyToken, "（目前沒有賽事）\n管理員用 /新增賽事 或 /開單 新增")
+			return
+		}
+		lines := []string{"🏸 目前可登記的賽事："}
+		for _, t := range tournaments {
+			lines = append(lines, "")
+			lines = append(lines, "▪️ "+t)
+			lines = append(lines, "👉 https://liff.line.me/"+h.cfg.LIFFID+"?t="+t)
+		}
+		h.reply(replyToken, strings.Join(lines, "\n"))
+
 	case strings.HasPrefix(text, "/開單"):
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/開單"))
 		if name == "" {
@@ -275,7 +297,8 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 
 const helpText = `🏸 羽球成績 Bot 指令：
 
-/登記 或 /add     → 取得成績登記連結
+/登記 或 /add     → 取得登記連結（自己從下拉選賽事）
+/所有連結 或 /all → 列出所有賽事的專屬登記連結
 /賽事列表         → 顯示目前所有賽事
 /賽事名稱         → 查詢該場比賽所有得獎紀錄（例：/清晨盃）
 /我的ID           → 顯示你的 LINE User ID
