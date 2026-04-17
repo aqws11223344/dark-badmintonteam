@@ -26,6 +26,7 @@ type Config struct {
 	ChannelSecret  string
 	ChannelToken   string
 	LIFFID         string
+	SheetsID       string   // Google Sheet ID（/表單 指令用）
 	AdminUserIDs   []string // 靜態清單（env var），永遠是 admin
 	BootstrapToken string   // 秘密指令，第一位 admin 用
 	Store          store.Store
@@ -237,6 +238,17 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, "🗑 已刪除管理員：\n"+target)
 
+	case text == "/表單" || text == "/sheet":
+		if !h.isAdmin(ctx, userID) {
+			return // 靜默
+		}
+		if h.cfg.SheetsID == "" {
+			h.reply(replyToken, "尚未設定 GOOGLE_SHEETS_ID")
+			return
+		}
+		url := "https://docs.google.com/spreadsheets/d/" + h.cfg.SheetsID + "/edit"
+		h.reply(replyToken, "📊 成績試算表：\n"+url)
+
 	case text == "/管理員列表":
 		if !h.isAdmin(ctx, userID) {
 			h.reply(replyToken, "⚠️ 只有管理員可以查看")
@@ -309,6 +321,7 @@ const adminHelpText = `🔐 管理員指令：
 /開單 賽事名稱     → 發起成績登記（會自動加入列表）
 /新增賽事 XXX      → 新增賽事到表單下拉
 /刪除賽事 XXX      → 從表單下拉移除
+/表單 或 /sheet    → 取得 Google 試算表連結
 /新增管理員 Uxxx   → 新增管理員
 /刪除管理員 Uxxx   → 移除管理員
 /管理員列表        → 顯示目前所有管理員`

@@ -28,6 +28,7 @@ func main() {
 		ChannelSecret:  cfg.ChannelSecret,
 		ChannelToken:   cfg.ChannelToken,
 		LIFFID:         cfg.LIFFID,
+		SheetsID:       cfg.SheetsID,
 		AdminUserIDs:   cfg.AdminUserIDs,
 		BootstrapToken: cfg.BootstrapToken,
 		Store:          st,
