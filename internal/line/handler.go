@@ -26,12 +26,14 @@ type Config struct {
 	ChannelSecret string
 	ChannelToken  string
 	LIFFID        string
+	AdminUserIDs  []string // 空 = 所有人都算管理員（MVP 預設）
 	Store         store.Store
 }
 
 type Handler struct {
-	cfg Config
-	bot *messaging_api.MessagingApiAPI
+	cfg     Config
+	bot     *messaging_api.MessagingApiAPI
+	adminMu map[string]bool // 快取 admin 查詢
 }
 
 func New(cfg Config) (*Handler, error) {
@@ -39,7 +41,19 @@ func New(cfg Config) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{cfg: cfg, bot: bot}, nil
+	m := make(map[string]bool, len(cfg.AdminUserIDs))
+	for _, id := range cfg.AdminUserIDs {
+		m[id] = true
+	}
+	return &Handler{cfg: cfg, bot: bot, adminMu: m}, nil
+}
+
+// isAdmin 回傳 userID 是否為管理員。若設定檔 AdminUserIDs 為空，所有人都是管理員（向下相容）。
+func (h *Handler) isAdmin(userID string) bool {
+	if len(h.adminMu) == 0 {
+		return true
+	}
+	return h.adminMu[userID]
 }
 
 // ServeHTTP 處理 LINE 的 webhook callback（含簽章驗證）。
@@ -59,7 +73,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch e := ev.(type) {
 		case webhook.MessageEvent:
 			if msg, ok := e.Message.(webhook.TextMessageContent); ok {
-				h.handleText(e.ReplyToken, msg.Text)
+				h.handleText(e.ReplyToken, msg.Text, sourceUserID(e.Source))
 			}
 		case webhook.FollowEvent:
 			h.reply(e.ReplyToken, "歡迎加入！\n在群組裡輸入「/開單 賽事名稱」開始蒐集成績 🏸")
@@ -68,18 +82,42 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) handleText(replyToken, text string) {
+// sourceUserID 從事件來源抽出 LINE userID（可能是 1 對 1 聊天、群組、多人聊天室）。
+// 若使用者沒加 bot 為好友，group/room source 的 userID 可能為空。
+func sourceUserID(src webhook.SourceInterface) string {
+	switch s := src.(type) {
+	case webhook.UserSource:
+		return s.UserId
+	case webhook.GroupSource:
+		return s.UserId
+	case webhook.RoomSource:
+		return s.UserId
+	}
+	return ""
+}
+
+func (h *Handler) handleText(replyToken, text, userID string) {
 	text = strings.TrimSpace(text)
 	ctx := context.Background()
 
 	switch {
+	case text == "/我的ID" || text == "/myid":
+		if userID == "" {
+			h.reply(replyToken, "（拿不到你的 ID，可能你還沒加 bot 為好友）")
+			return
+		}
+		h.reply(replyToken, "你的 LINE User ID：\n"+userID+"\n\n把這串貼給管理員設定權限用。")
+
 	case strings.HasPrefix(text, "/開單"):
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/開單"))
 		if name == "" {
 			h.reply(replyToken, "用法：/開單 2026清晨杯")
 			return
 		}
-		// 自動加入賽事列表（若不存在）
+		if !h.isAdmin(userID) {
+			h.reply(replyToken, "⚠️ 只有管理員可以開單")
+			return
+		}
 		if err := h.cfg.Store.AddTournament(ctx, name); err != nil {
 			log.Printf("add tournament on /開單 failed: %v", err)
 		}
@@ -89,6 +127,10 @@ func (h *Handler) handleText(replyToken, text string) {
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/新增賽事"))
 		if name == "" {
 			h.reply(replyToken, "用法：/新增賽事 2026清晨杯")
+			return
+		}
+		if !h.isAdmin(userID) {
+			h.reply(replyToken, "⚠️ 只有管理員可以新增賽事")
 			return
 		}
 		if err := h.cfg.Store.AddTournament(ctx, name); err != nil {
@@ -101,6 +143,10 @@ func (h *Handler) handleText(replyToken, text string) {
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/刪除賽事"))
 		if name == "" {
 			h.reply(replyToken, "用法：/刪除賽事 2026清晨杯")
+			return
+		}
+		if !h.isAdmin(userID) {
+			h.reply(replyToken, "⚠️ 只有管理員可以刪除賽事")
 			return
 		}
 		if err := h.cfg.Store.RemoveTournament(ctx, name); err != nil {
@@ -138,14 +184,16 @@ func (h *Handler) handleText(replyToken, text string) {
 
 const helpText = `🏸 羽球成績 Bot 指令：
 
-/開單 賽事名稱    → 發起成績登記（會自動加入列表）
-/新增賽事 XXX     → 新增賽事到表單下拉
-/刪除賽事 XXX     → 從表單下拉移除
+【一般】
 /賽事列表         → 顯示目前所有賽事
-/賽事名稱         → 查詢該場比賽所有得獎紀錄
+/賽事名稱         → 查詢該場比賽所有得獎紀錄（例：/清晨盃）
+/我的ID           → 顯示你的 LINE User ID
 /說明             → 顯示這份說明
 
-例：/清晨盃`
+【管理員】
+/開單 賽事名稱    → 發起成績登記（會自動加入列表）
+/新增賽事 XXX     → 新增賽事到表單下拉
+/刪除賽事 XXX     → 從表單下拉移除`
 
 // maybeQueryTournament 如果 name 是已存在的賽事，回傳該場比賽所有紀錄；否則靜默。
 func (h *Handler) maybeQueryTournament(ctx context.Context, replyToken, name string) {

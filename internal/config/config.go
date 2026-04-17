@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -16,10 +17,10 @@ type Config struct {
 	TursoURL              string
 	TursoToken            string
 	PublicBaseURL         string
+	AdminUserIDs          []string // LINE user IDs 有管理權限；空 = 所有人都是管理員
 }
 
 func Load() Config {
-	// 本機開發用：有 .env 就載入，沒有就跳過（線上部署靠 Cloud Run 環境變數）。
 	if err := godotenv.Load(); err != nil {
 		log.Printf(".env not loaded (%v) — using OS environment", err)
 	}
@@ -33,7 +34,23 @@ func Load() Config {
 		TursoURL:              os.Getenv("TURSO_DATABASE_URL"),
 		TursoToken:            os.Getenv("TURSO_AUTH_TOKEN"),
 		PublicBaseURL:         os.Getenv("PUBLIC_BASE_URL"),
+		AdminUserIDs:          parseList(os.Getenv("ADMIN_USER_IDS")),
 	}
+}
+
+func parseList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func required(key string) string {

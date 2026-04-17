@@ -28,6 +28,7 @@ func main() {
 		ChannelSecret: cfg.ChannelSecret,
 		ChannelToken:  cfg.ChannelToken,
 		LIFFID:        cfg.LIFFID,
+		AdminUserIDs:  cfg.AdminUserIDs,
 		Store:         st,
 	})
 	if err != nil {
