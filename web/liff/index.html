@@ -38,6 +38,7 @@
   .toast.show { opacity: 1; }
   .partner-row { display: none; }
   .partner-row.show { display: block; }
+  .hint { font-size: 12px; color: #999; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -46,29 +47,36 @@
 <div class="sub" id="who">正在載入...</div>
 
 <form id="form" class="card">
-  <label>賽事</label>
-  <select name="tournament" required></select>
+  <label>姓名 <span style="color:#e00">*</span></label>
+  <input name="player_name" required placeholder="例：香菇、阿強" />
+  <div class="hint">可以填本名或球場綽號</div>
+
+  <label>賽事 <span style="color:#e00">*</span></label>
+  <input name="tournament" list="tournaments" required placeholder="例：2026清晨杯" />
+  <datalist id="tournaments"></datalist>
 
   <div class="row">
     <div>
       <label>年齡組</label>
-      <select name="age_group" required></select>
+      <input name="age_group" list="age_groups" placeholder="例：30歲組、29下、未分組" />
+      <datalist id="age_groups"></datalist>
     </div>
     <div>
       <label>級別</label>
-      <select name="class" required></select>
+      <input name="class" list="classes" placeholder="例：公開、社會、甲組" />
+      <datalist id="classes"></datalist>
     </div>
   </div>
 
-  <label>項目</label>
+  <label>項目 <span style="color:#e00">*</span></label>
   <select name="event" required></select>
 
   <div class="partner-row" id="partner-row">
-    <label>搭檔（雙打才需要）</label>
-    <input name="partner" placeholder="例：李大華（隊外可填）" />
+    <label>搭檔</label>
+    <input name="partner" placeholder="例：李大華（隊外也可填）" />
   </div>
 
-  <label>名次</label>
+  <label>名次 <span style="color:#e00">*</span></label>
   <select name="rank" required></select>
 
   <label>備註（選填）</label>
@@ -81,8 +89,6 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const LIFF_ID_PLACEHOLDER = "YOUR_LIFF_ID"; // build / deploy 時不需要改，前端從 URL 自動讀
-
 const $ = sel => document.querySelector(sel);
 const form = $("#form");
 const partnerRow = $("#partner-row");
@@ -92,6 +98,11 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 2000);
+}
+
+function fillDatalist(id, items) {
+  const el = document.getElementById(id);
+  el.innerHTML = items.map(v => `<option value="${v}"></option>`).join("");
 }
 
 function fillSelect(name, items, preselect) {
@@ -105,29 +116,32 @@ async function init() {
   const params = new URLSearchParams(location.search);
   const tournamentFromURL = params.get("t") || "";
 
-  // 從 path 或 query 拿 LIFF ID
-  const liffId = window.LIFF_ID || document.querySelector('meta[name="liff-id"]')?.content;
+  // 先抓後端設定（LIFF ID + 選項）
+  const cfg = await fetch("/api/options").then(r => r.json());
+  const opts = cfg.options || cfg; // 相容舊格式
+  const liffId = cfg.liff_id;
+
   try {
-    await liff.init({ liffId: liffId || LIFF_ID_PLACEHOLDER });
-    if (!liff.isLoggedIn()) {
-      liff.login();
-      return;
+    if (liffId) {
+      await liff.init({ liffId });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+      me = await liff.getProfile();
+      $("#who").textContent = `輸入人：${me.displayName}`;
+    } else {
+      throw new Error("no LIFF ID configured");
     }
-    me = await liff.getProfile();
-    $("#who").textContent = `登記人：${me.displayName}`;
   } catch (e) {
-    console.error(e);
-    $("#who").textContent = "（無法初始化 LIFF，使用測試模式）";
+    console.warn("LIFF init failed, using test mode:", e);
+    $("#who").textContent = "（測試模式：未連接 LINE）";
     me = { userId: "test-user", displayName: "測試員" };
   }
 
-  const opts = await fetch("/api/options").then(r => r.json());
-  fillSelect("tournament", opts.tournaments.includes(tournamentFromURL)
-    ? opts.tournaments
-    : (tournamentFromURL ? [tournamentFromURL, ...opts.tournaments] : opts.tournaments),
-    tournamentFromURL || opts.tournaments[0]);
-  fillSelect("age_group", opts.age_groups);
-  fillSelect("class", opts.classes);
+  // 賽事：如果 URL 帶了，預填到 input
+  if (tournamentFromURL) form.elements["tournament"].value = tournamentFromURL;
+  fillDatalist("tournaments", opts.tournaments);
+  fillDatalist("age_groups", opts.age_groups);
+  fillDatalist("classes", opts.classes);
+
   fillSelect("event", opts.events);
   fillSelect("rank", opts.ranks);
 
@@ -150,13 +164,14 @@ form.addEventListener("submit", async (e) => {
   const body = {
     user_id: me.userId,
     user_name: me.displayName,
-    tournament: fd.get("tournament"),
-    age_group: fd.get("age_group"),
-    class: fd.get("class"),
+    player_name: (fd.get("player_name") || "").trim(),
+    tournament: (fd.get("tournament") || "").trim(),
+    age_group: (fd.get("age_group") || "").trim(),
+    class: (fd.get("class") || "").trim(),
     event: fd.get("event"),
-    partner: fd.get("partner") || "",
+    partner: (fd.get("partner") || "").trim(),
     rank: fd.get("rank"),
-    note: fd.get("note") || "",
+    note: (fd.get("note") || "").trim(),
   };
 
   try {
@@ -177,11 +192,15 @@ form.addEventListener("submit", async (e) => {
 });
 
 $("#another-btn").addEventListener("click", () => {
-  // 保留 tournament / age / class，清空項目/搭檔/名次/備註
+  // 保留姓名、賽事、年齡組、級別；清空項目相關欄位
   ["partner", "note"].forEach(n => form.elements[n].value = "");
+  form.elements["event"].selectedIndex = 0;
+  form.elements["rank"].selectedIndex = 0;
+  togglePartnerRow();
   $("#submit-btn").disabled = false;
   $("#submit-btn").textContent = "送出";
   $("#another-btn").style.display = "none";
+  window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
 init();

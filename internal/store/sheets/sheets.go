@@ -2,8 +2,8 @@
 //
 // 分頁設計：每年一個分頁（例：2026、2027），自動建立。
 // 欄位：
-//   A: ID | B: SubmittedAt | C: UserID | D: UserName | E: Tournament
-//   F: AgeGroup | G: Class | H: Event | I: Partner | J: Rank | K: Note
+//   A: ID | B: SubmittedAt | C: UserID | D: UserName(LINE 輸入人) | E: PlayerName(選手姓名)
+//   F: Tournament | G: AgeGroup | H: Class | I: Event | J: Partner | K: Rank | L: Note
 package sheets
 
 import (
@@ -20,12 +20,14 @@ import (
 	"github.com/aqws11223344/dark-badmintonteam/internal/domain"
 )
 
+const colRange = "A:L" // 12 欄
+
 type Store struct {
 	svc     *sheets.Service
 	sheetID string
 
 	mu    sync.Mutex
-	known map[string]bool // 已確認存在+有 header 的分頁
+	known map[string]bool
 }
 
 func New(ctx context.Context, sheetID, credentialsFile string) (*Store, error) {
@@ -43,19 +45,16 @@ func New(ctx context.Context, sheetID, credentialsFile string) (*Store, error) {
 		sheetID: sheetID,
 		known:   make(map[string]bool),
 	}
-	// 預先把當年度分頁準備好（可選；省掉第一次寫入時的延遲）
 	if err := s.ensureSheet(ctx, yearTab(time.Now())); err != nil {
 		return nil, fmt.Errorf("ensure current-year sheet: %w", err)
 	}
 	return s, nil
 }
 
-// yearTab 回傳該時間對應的分頁名稱，例："2026"。
 func yearTab(t time.Time) string {
 	return strconv.Itoa(t.Year())
 }
 
-// ensureSheet 確保指定名稱的分頁存在，且第一列有表頭。
 func (s *Store) ensureSheet(ctx context.Context, name string) error {
 	s.mu.Lock()
 	if s.known[name] {
@@ -101,7 +100,7 @@ func (s *Store) ensureSheet(ctx context.Context, name string) error {
 }
 
 func (s *Store) ensureHeader(ctx context.Context, tab string) error {
-	headerRange := fmt.Sprintf("%s!A1:K1", tab)
+	headerRange := fmt.Sprintf("%s!A1:L1", tab)
 	resp, err := s.svc.Spreadsheets.Values.Get(s.sheetID, headerRange).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("get header: %w", err)
@@ -109,8 +108,8 @@ func (s *Store) ensureHeader(ctx context.Context, tab string) error {
 	if len(resp.Values) > 0 && len(resp.Values[0]) > 0 {
 		return nil
 	}
-	header := []any{"ID", "SubmittedAt", "UserID", "UserName", "Tournament",
-		"AgeGroup", "Class", "Event", "Partner", "Rank", "Note"}
+	header := []any{"ID", "SubmittedAt", "UserID", "UserName", "PlayerName",
+		"Tournament", "AgeGroup", "Class", "Event", "Partner", "Rank", "Note"}
 	_, err = s.svc.Spreadsheets.Values.Update(s.sheetID, headerRange, &sheets.ValueRange{
 		Values: [][]any{header},
 	}).ValueInputOption("RAW").Context(ctx).Do()
@@ -125,11 +124,11 @@ func (s *Store) SaveResult(ctx context.Context, r domain.MatchResult) error {
 	row := []any{
 		r.ID,
 		r.SubmittedAt.Format("2006-01-02 15:04:05"),
-		r.UserID, r.UserName,
+		r.UserID, r.UserName, r.PlayerName,
 		r.Tournament, r.AgeGroup, r.Class, r.Event,
 		r.Partner, r.Rank, r.Note,
 	}
-	appendArea := fmt.Sprintf("%s!A:K", tab)
+	appendArea := fmt.Sprintf("%s!%s", tab, colRange)
 	_, err := s.svc.Spreadsheets.Values.Append(s.sheetID, appendArea, &sheets.ValueRange{
 		Values: [][]any{row},
 	}).ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
@@ -164,7 +163,6 @@ func (s *Store) ListByTournament(ctx context.Context, t string) ([]domain.MatchR
 	return out, nil
 }
 
-// readAll 讀取所有「年份分頁」（名稱為 4 位數字）的資料並合併。
 func (s *Store) readAll(ctx context.Context) ([]domain.MatchResult, error) {
 	meta, err := s.svc.Spreadsheets.Get(s.sheetID).Context(ctx).Do()
 	if err != nil {
@@ -177,7 +175,7 @@ func (s *Store) readAll(ctx context.Context) ([]domain.MatchResult, error) {
 		if !isYearTab(title) {
 			continue
 		}
-		readRange := fmt.Sprintf("%s!A2:K", title)
+		readRange := fmt.Sprintf("%s!A2:L", title)
 		resp, err := s.svc.Spreadsheets.Values.Get(s.sheetID, readRange).Context(ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", title, err)
@@ -209,13 +207,14 @@ func rowToResult(row []any) domain.MatchResult {
 		ID:         get(0),
 		UserID:     get(2),
 		UserName:   get(3),
-		Tournament: get(4),
-		AgeGroup:   get(5),
-		Class:      get(6),
-		Event:      get(7),
-		Partner:    get(8),
-		Rank:       get(9),
-		Note:       get(10),
+		PlayerName: get(4),
+		Tournament: get(5),
+		AgeGroup:   get(6),
+		Class:      get(7),
+		Event:      get(8),
+		Partner:    get(9),
+		Rank:       get(10),
+		Note:       get(11),
 	}
 }
 

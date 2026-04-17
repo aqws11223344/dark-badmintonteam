@@ -118,15 +118,19 @@ func (h *Handler) reply(replyToken, text string) {
 
 // ===== LIFF 表單後端 API =====
 
-// GetOptions 提供下拉選單來源給 LIFF。
+// GetOptions 提供下拉選單來源 + LIFF ID 給前端。
 func (h *Handler) GetOptions(c *gin.Context) {
-	c.JSON(http.StatusOK, domain.DefaultOptions())
+	c.JSON(http.StatusOK, gin.H{
+		"liff_id": h.cfg.LIFFID,
+		"options": domain.DefaultOptions(),
+	})
 }
 
 type submitRequest struct {
-	IDToken    string `json:"id_token"` // LIFF 拿到的 ID token，用來驗使用者
-	UserID     string `json:"user_id"`  // 退路（沒 verify 時使用）
-	UserName   string `json:"user_name"`
+	IDToken    string `json:"id_token"`  // LIFF 拿到的 ID token（未來驗證用）
+	UserID     string `json:"user_id"`   // LINE userId（系統識別用）
+	UserName   string `json:"user_name"` // LINE 顯示名稱（輸入人）
+	PlayerName string `json:"player_name"`
 	Tournament string `json:"tournament"`
 	AgeGroup   string `json:"age_group"`
 	Class      string `json:"class"`
@@ -142,8 +146,8 @@ func (h *Handler) SubmitResult(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.UserID == "" || req.Tournament == "" || req.Event == "" || req.Rank == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id / tournament / event / rank 必填"})
+	if req.UserID == "" || req.PlayerName == "" || req.Tournament == "" || req.Event == "" || req.Rank == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id / player_name / tournament / event / rank 必填"})
 		return
 	}
 
@@ -151,6 +155,7 @@ func (h *Handler) SubmitResult(c *gin.Context) {
 		ID:          newID(),
 		UserID:      req.UserID,
 		UserName:    req.UserName,
+		PlayerName:  req.PlayerName,
 		Tournament:  req.Tournament,
 		AgeGroup:    req.AgeGroup,
 		Class:       req.Class,

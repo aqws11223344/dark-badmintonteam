@@ -18,9 +18,10 @@ CREATE TABLE IF NOT EXISTS results (
     submitted_at  TEXT NOT NULL,
     user_id       TEXT NOT NULL,
     user_name     TEXT NOT NULL,
+    player_name   TEXT NOT NULL,
     tournament    TEXT NOT NULL,
-    age_group     TEXT NOT NULL,
-    class         TEXT NOT NULL,
+    age_group     TEXT,
+    class         TEXT,
     event         TEXT NOT NULL,
     partner       TEXT,
     rank          TEXT NOT NULL,
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS results (
 );
 CREATE INDEX IF NOT EXISTS idx_results_user       ON results(user_id);
 CREATE INDEX IF NOT EXISTS idx_results_tournament ON results(tournament);
+CREATE INDEX IF NOT EXISTS idx_results_player     ON results(player_name);
 `
 
 type Store struct {
@@ -60,26 +62,28 @@ func New(dbURL, authToken string) (*Store, error) {
 
 func (s *Store) SaveResult(ctx context.Context, r domain.MatchResult) error {
 	_, err := s.db.ExecContext(ctx, `
-        INSERT INTO results (id, submitted_at, user_id, user_name, tournament, age_group, class, event, partner, rank, note)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        INSERT INTO results (id, submitted_at, user_id, user_name, player_name, tournament, age_group, class, event, partner, rank, note)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET
             submitted_at = excluded.submitted_at,
             user_name    = excluded.user_name,
+            player_name  = excluded.player_name,
             partner      = excluded.partner,
             rank         = excluded.rank,
             note         = excluded.note`,
 		r.ID, r.SubmittedAt.Format("2006-01-02 15:04:05"),
-		r.UserID, r.UserName,
+		r.UserID, r.UserName, r.PlayerName,
 		r.Tournament, r.AgeGroup, r.Class, r.Event,
 		r.Partner, r.Rank, r.Note,
 	)
 	return err
 }
 
+const selectCols = `id, submitted_at, user_id, user_name, player_name, tournament, age_group, class, event, partner, rank, note`
+
 func (s *Store) ListByUser(ctx context.Context, userID string) ([]domain.MatchResult, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, submitted_at, user_id, user_name, tournament, age_group, class, event, partner, rank, note
-		   FROM results WHERE user_id = ? ORDER BY submitted_at DESC`, userID)
+		`SELECT `+selectCols+` FROM results WHERE user_id = ? ORDER BY submitted_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +93,7 @@ func (s *Store) ListByUser(ctx context.Context, userID string) ([]domain.MatchRe
 
 func (s *Store) ListByTournament(ctx context.Context, t string) ([]domain.MatchResult, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, submitted_at, user_id, user_name, tournament, age_group, class, event, partner, rank, note
-		   FROM results WHERE tournament = ? ORDER BY user_name`, t)
+		`SELECT `+selectCols+` FROM results WHERE tournament = ? ORDER BY player_name`, t)
 	if err != nil {
 		return nil, err
 	}
@@ -102,12 +105,14 @@ func scan(rows *sql.Rows) ([]domain.MatchResult, error) {
 	var out []domain.MatchResult
 	for rows.Next() {
 		var r domain.MatchResult
-		var submittedAt, partner, note sql.NullString
-		if err := rows.Scan(&r.ID, &submittedAt, &r.UserID, &r.UserName,
-			&r.Tournament, &r.AgeGroup, &r.Class, &r.Event,
+		var submittedAt, ageGroup, class, partner, note sql.NullString
+		if err := rows.Scan(&r.ID, &submittedAt, &r.UserID, &r.UserName, &r.PlayerName,
+			&r.Tournament, &ageGroup, &class, &r.Event,
 			&partner, &r.Rank, &note); err != nil {
 			return nil, err
 		}
+		r.AgeGroup = ageGroup.String
+		r.Class = class.String
 		r.Partner = partner.String
 		r.Note = note.String
 		out = append(out, r)
