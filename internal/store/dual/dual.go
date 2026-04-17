@@ -62,6 +62,30 @@ func (s *Store) RemoveTournament(ctx context.Context, name string) error {
 	return nil
 }
 
+func (s *Store) ListAdmins(ctx context.Context) ([]store.Admin, error) {
+	return s.primary.ListAdmins(ctx)
+}
+
+func (s *Store) AddAdmin(ctx context.Context, a store.Admin) error {
+	if err := s.primary.AddAdmin(ctx, a); err != nil {
+		return err
+	}
+	if err := s.mirror.AddAdmin(ctx, a); err != nil {
+		log.Printf("dual store: mirror add admin failed: %v", err)
+	}
+	return nil
+}
+
+func (s *Store) RemoveAdmin(ctx context.Context, userID string) error {
+	if err := s.primary.RemoveAdmin(ctx, userID); err != nil {
+		return err
+	}
+	if err := s.mirror.RemoveAdmin(ctx, userID); err != nil {
+		log.Printf("dual store: mirror remove admin failed: %v", err)
+	}
+	return nil
+}
+
 func (s *Store) Close() error {
 	if err := s.primary.Close(); err != nil {
 		return err

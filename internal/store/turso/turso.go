@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/aqws11223344/dark-badmintonteam/internal/domain"
+	"github.com/aqws11223344/dark-badmintonteam/internal/store"
 )
 
 type Store struct{}
@@ -35,6 +36,18 @@ func (s *Store) AddTournament(_ context.Context, _ string) error {
 }
 
 func (s *Store) RemoveTournament(_ context.Context, _ string) error {
+	return errors.New("turso disabled")
+}
+
+func (s *Store) ListAdmins(_ context.Context) ([]store.Admin, error) {
+	return nil, errors.New("turso disabled")
+}
+
+func (s *Store) AddAdmin(_ context.Context, _ store.Admin) error {
+	return errors.New("turso disabled")
+}
+
+func (s *Store) RemoveAdmin(_ context.Context, _ string) error {
 	return errors.New("turso disabled")
 }
 

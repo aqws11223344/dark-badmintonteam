@@ -16,6 +16,7 @@ import (
 	"google.golang.org/api/sheets/v4"
 
 	"github.com/aqws11223344/dark-badmintonteam/internal/domain"
+	"github.com/aqws11223344/dark-badmintonteam/internal/store"
 )
 
 const colRange = "A:I" // 9 欄
@@ -210,6 +211,136 @@ func rowToResult(row []any) domain.MatchResult {
 		Rank:       get(7),
 		Note:       get(8),
 	}
+}
+
+// ===== 管理員列表（存在 "admins" 分頁：A=UserID B=Name C=AddedAt）=====
+
+const adminsTab = "admins"
+
+func (s *Store) ensureAdminsTab(ctx context.Context) error {
+	s.mu.Lock()
+	if s.known[adminsTab] {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
+	meta, err := s.svc.Spreadsheets.Get(s.sheetID).Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	exists := false
+	for _, sh := range meta.Sheets {
+		if sh.Properties.Title == adminsTab {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		_, err := s.svc.Spreadsheets.BatchUpdate(s.sheetID, &sheets.BatchUpdateSpreadsheetRequest{
+			Requests: []*sheets.Request{{
+				AddSheet: &sheets.AddSheetRequest{
+					Properties: &sheets.SheetProperties{Title: adminsTab},
+				},
+			}},
+		}).Context(ctx).Do()
+		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			return err
+		}
+		_, _ = s.svc.Spreadsheets.Values.Update(s.sheetID, adminsTab+"!A1:C1",
+			&sheets.ValueRange{Values: [][]any{{"UserID", "Name", "AddedAt"}}}).
+			ValueInputOption("RAW").Context(ctx).Do()
+	}
+	s.mu.Lock()
+	s.known[adminsTab] = true
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Store) ListAdmins(ctx context.Context) ([]store.Admin, error) {
+	if err := s.ensureAdminsTab(ctx); err != nil {
+		return nil, err
+	}
+	resp, err := s.svc.Spreadsheets.Values.Get(s.sheetID, adminsTab+"!A2:C").Context(ctx).Do()
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Admin
+	for _, row := range resp.Values {
+		a := store.Admin{}
+		if len(row) > 0 {
+			a.UserID, _ = row[0].(string)
+		}
+		if a.UserID == "" {
+			continue
+		}
+		if len(row) > 1 {
+			a.Name, _ = row[1].(string)
+		}
+		if len(row) > 2 {
+			if s, ok := row[2].(string); ok {
+				if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+					a.AddedAt = t
+				}
+			}
+		}
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+func (s *Store) AddAdmin(ctx context.Context, a store.Admin) error {
+	if err := s.ensureAdminsTab(ctx); err != nil {
+		return err
+	}
+	existing, err := s.ListAdmins(ctx)
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if e.UserID == a.UserID {
+			return nil
+		}
+	}
+	if a.AddedAt.IsZero() {
+		a.AddedAt = time.Now()
+	}
+	_, err = s.svc.Spreadsheets.Values.Append(s.sheetID, adminsTab+"!A:C",
+		&sheets.ValueRange{Values: [][]any{{a.UserID, a.Name, a.AddedAt.Format("2006-01-02 15:04:05")}}}).
+		ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	return err
+}
+
+func (s *Store) RemoveAdmin(ctx context.Context, userID string) error {
+	if err := s.ensureAdminsTab(ctx); err != nil {
+		return err
+	}
+	existing, err := s.ListAdmins(ctx)
+	if err != nil {
+		return err
+	}
+	var filtered []store.Admin
+	for _, e := range existing {
+		if e.UserID != userID {
+			filtered = append(filtered, e)
+		}
+	}
+	_, err = s.svc.Spreadsheets.Values.Clear(s.sheetID, adminsTab+"!A2:C",
+		&sheets.ClearValuesRequest{}).Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	values := make([][]any, 0, len(filtered))
+	for _, a := range filtered {
+		values = append(values, []any{a.UserID, a.Name, a.AddedAt.Format("2006-01-02 15:04:05")})
+	}
+	_, err = s.svc.Spreadsheets.Values.Update(s.sheetID, adminsTab+"!A2:C",
+		&sheets.ValueRange{Values: values}).
+		ValueInputOption("RAW").Context(ctx).Do()
+	return err
 }
 
 // ===== 賽事列表（存在 "tournaments" 分頁的 A 欄）=====

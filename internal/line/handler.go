@@ -23,17 +23,18 @@ import (
 )
 
 type Config struct {
-	ChannelSecret string
-	ChannelToken  string
-	LIFFID        string
-	AdminUserIDs  []string // 空 = 所有人都算管理員（MVP 預設）
-	Store         store.Store
+	ChannelSecret  string
+	ChannelToken   string
+	LIFFID         string
+	AdminUserIDs   []string // 靜態清單（env var），永遠是 admin
+	BootstrapToken string   // 秘密指令，第一位 admin 用
+	Store          store.Store
 }
 
 type Handler struct {
 	cfg     Config
 	bot     *messaging_api.MessagingApiAPI
-	adminMu map[string]bool // 快取 admin 查詢
+	staticAdmins map[string]bool
 }
 
 func New(cfg Config) (*Handler, error) {
@@ -45,15 +46,28 @@ func New(cfg Config) (*Handler, error) {
 	for _, id := range cfg.AdminUserIDs {
 		m[id] = true
 	}
-	return &Handler{cfg: cfg, bot: bot, adminMu: m}, nil
+	return &Handler{cfg: cfg, bot: bot, staticAdmins: m}, nil
 }
 
-// isAdmin 回傳 userID 是否為管理員。若設定檔 AdminUserIDs 為空，所有人都是管理員（向下相容）。
-func (h *Handler) isAdmin(userID string) bool {
-	if len(h.adminMu) == 0 {
+// isAdmin 先查靜態清單，再查 Store 動態清單。
+func (h *Handler) isAdmin(ctx context.Context, userID string) bool {
+	if userID == "" {
+		return false
+	}
+	if h.staticAdmins[userID] {
 		return true
 	}
-	return h.adminMu[userID]
+	admins, err := h.cfg.Store.ListAdmins(ctx)
+	if err != nil {
+		log.Printf("list admins failed: %v", err)
+		return false
+	}
+	for _, a := range admins {
+		if a.UserID == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // ServeHTTP 處理 LINE 的 webhook callback（含簽章驗證）。
@@ -101,12 +115,17 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 	ctx := context.Background()
 
 	switch {
+	// ===== 秘密 bootstrap：/addme（不列在 help）=====
+	// 只有當 Store 裡還沒任何 admin 時才有效。
+	case text == "/addme":
+		h.handleBootstrap(ctx, replyToken, userID)
+
 	case text == "/我的ID" || text == "/myid":
 		if userID == "" {
-			h.reply(replyToken, "（拿不到你的 ID，可能你還沒加 bot 為好友）")
+			h.reply(replyToken, "（拿不到你的 ID，請先加 bot 為好友）")
 			return
 		}
-		h.reply(replyToken, "你的 LINE User ID：\n"+userID+"\n\n把這串貼給管理員設定權限用。")
+		h.reply(replyToken, "你的 LINE User ID：\n"+userID)
 
 	case strings.HasPrefix(text, "/開單"):
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/開單"))
@@ -114,7 +133,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 			h.reply(replyToken, "用法：/開單 2026清晨杯")
 			return
 		}
-		if !h.isAdmin(userID) {
+		if !h.isAdmin(ctx, userID) {
 			h.reply(replyToken, "⚠️ 只有管理員可以開單")
 			return
 		}
@@ -129,7 +148,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 			h.reply(replyToken, "用法：/新增賽事 2026清晨杯")
 			return
 		}
-		if !h.isAdmin(userID) {
+		if !h.isAdmin(ctx, userID) {
 			h.reply(replyToken, "⚠️ 只有管理員可以新增賽事")
 			return
 		}
@@ -145,7 +164,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 			h.reply(replyToken, "用法：/刪除賽事 2026清晨杯")
 			return
 		}
-		if !h.isAdmin(userID) {
+		if !h.isAdmin(ctx, userID) {
 			h.reply(replyToken, "⚠️ 只有管理員可以刪除賽事")
 			return
 		}
@@ -154,6 +173,63 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 			return
 		}
 		h.reply(replyToken, "🗑 已刪除賽事：\n"+name)
+
+	// ===== 管理員管理 =====
+	case strings.HasPrefix(text, "/新增管理員"):
+		target := strings.TrimSpace(strings.TrimPrefix(text, "/新增管理員"))
+		if target == "" {
+			h.reply(replyToken, "用法：/新增管理員 Uxxxxxxxx（該使用者的 LINE User ID）")
+			return
+		}
+		if !h.isAdmin(ctx, userID) {
+			h.reply(replyToken, "⚠️ 只有管理員可以新增管理員")
+			return
+		}
+		if err := h.cfg.Store.AddAdmin(ctx, store.Admin{UserID: target, AddedAt: time.Now()}); err != nil {
+			h.reply(replyToken, "❌ 新增失敗："+err.Error())
+			return
+		}
+		h.reply(replyToken, "✅ 已新增管理員：\n"+target)
+
+	case strings.HasPrefix(text, "/刪除管理員"):
+		target := strings.TrimSpace(strings.TrimPrefix(text, "/刪除管理員"))
+		if target == "" {
+			h.reply(replyToken, "用法：/刪除管理員 Uxxxxxxxx")
+			return
+		}
+		if !h.isAdmin(ctx, userID) {
+			h.reply(replyToken, "⚠️ 只有管理員可以刪除管理員")
+			return
+		}
+		if err := h.cfg.Store.RemoveAdmin(ctx, target); err != nil {
+			h.reply(replyToken, "❌ 刪除失敗："+err.Error())
+			return
+		}
+		h.reply(replyToken, "🗑 已刪除管理員：\n"+target)
+
+	case text == "/管理員列表":
+		if !h.isAdmin(ctx, userID) {
+			h.reply(replyToken, "⚠️ 只有管理員可以查看")
+			return
+		}
+		admins, err := h.cfg.Store.ListAdmins(ctx)
+		if err != nil {
+			h.reply(replyToken, "❌ 查詢失敗："+err.Error())
+			return
+		}
+		if len(admins) == 0 {
+			h.reply(replyToken, "（Store 內沒有管理員；只靠環境變數 ADMIN_USER_IDS）")
+			return
+		}
+		lines := []string{"👮 管理員列表："}
+		for _, a := range admins {
+			line := "• " + a.UserID
+			if a.Name != "" {
+				line = "• " + a.Name + "（" + a.UserID + "）"
+			}
+			lines = append(lines, line)
+		}
+		h.reply(replyToken, strings.Join(lines, "\n"))
 
 	case text == "/賽事列表":
 		list, err := h.cfg.Store.ListTournaments(ctx)
@@ -170,6 +246,13 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 	case text == "/help" || text == "/說明":
 		h.reply(replyToken, helpText)
 
+	case text == "/darkhelp":
+		if !h.isAdmin(ctx, userID) {
+			// 假裝不認識這個指令，不洩漏管理員指令存在
+			return
+		}
+		h.reply(replyToken, adminHelpText)
+
 	default:
 		// 可能是 /<賽事名稱> 查詢
 		if strings.HasPrefix(text, "/") && !strings.Contains(text, " ") {
@@ -184,16 +267,57 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 
 const helpText = `🏸 羽球成績 Bot 指令：
 
-【一般】
 /賽事列表         → 顯示目前所有賽事
 /賽事名稱         → 查詢該場比賽所有得獎紀錄（例：/清晨盃）
 /我的ID           → 顯示你的 LINE User ID
-/說明             → 顯示這份說明
+/說明             → 顯示這份說明`
 
-【管理員】
-/開單 賽事名稱    → 發起成績登記（會自動加入列表）
-/新增賽事 XXX     → 新增賽事到表單下拉
-/刪除賽事 XXX     → 從表單下拉移除`
+const adminHelpText = `🔐 管理員指令：
+
+/開單 賽事名稱     → 發起成績登記（會自動加入列表）
+/新增賽事 XXX      → 新增賽事到表單下拉
+/刪除賽事 XXX      → 從表單下拉移除
+/新增管理員 Uxxx   → 新增管理員
+/刪除管理員 Uxxx   → 移除管理員
+/管理員列表        → 顯示目前所有管理員`
+
+// handleBootstrap 只有在 Store 沒有任何 admin 時才會真的執行，否則靜默。
+func (h *Handler) handleBootstrap(ctx context.Context, replyToken, userID string) {
+	if userID == "" {
+		// 連 userID 都拿不到（可能是群組且使用者沒加 bot 為好友）
+		h.reply(replyToken, "⚠️ 請先加 bot 為好友，再試一次")
+		return
+	}
+	admins, err := h.cfg.Store.ListAdmins(ctx)
+	if err != nil {
+		log.Printf("list admins: %v", err)
+		return // 靜默
+	}
+	if len(admins) > 0 {
+		// 已有管理員，拒絕自助 bootstrap
+		return
+	}
+
+	// 嘗試拿 LINE 顯示名稱（失敗無妨）
+	name := ""
+	if p, err := h.bot.GetProfile(userID); err == nil && p != nil {
+		name = p.DisplayName
+	}
+
+	if err := h.cfg.Store.AddAdmin(ctx, store.Admin{
+		UserID:  userID,
+		Name:    name,
+		AddedAt: time.Now(),
+	}); err != nil {
+		h.reply(replyToken, "❌ 新增失敗："+err.Error())
+		return
+	}
+	msg := "✅ 你已成為管理員"
+	if name != "" {
+		msg += "：" + name
+	}
+	h.reply(replyToken, msg+"\n\n輸入 /darkhelp 查看管理員指令")
+}
 
 // maybeQueryTournament 如果 name 是已存在的賽事，回傳該場比賽所有紀錄；否則靜默。
 func (h *Handler) maybeQueryTournament(ctx context.Context, replyToken, name string) {

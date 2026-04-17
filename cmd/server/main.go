@@ -25,11 +25,12 @@ func main() {
 	st := buildStore(cfg)
 
 	handler, err := linehandler.New(linehandler.Config{
-		ChannelSecret: cfg.ChannelSecret,
-		ChannelToken:  cfg.ChannelToken,
-		LIFFID:        cfg.LIFFID,
-		AdminUserIDs:  cfg.AdminUserIDs,
-		Store:         st,
+		ChannelSecret:  cfg.ChannelSecret,
+		ChannelToken:   cfg.ChannelToken,
+		LIFFID:         cfg.LIFFID,
+		AdminUserIDs:   cfg.AdminUserIDs,
+		BootstrapToken: cfg.BootstrapToken,
+		Store:          st,
 	})
 	if err != nil {
 		log.Fatalf("init line handler: %v", err)

@@ -17,7 +17,8 @@ type Config struct {
 	TursoURL              string
 	TursoToken            string
 	PublicBaseURL         string
-	AdminUserIDs          []string // LINE user IDs 有管理權限；空 = 所有人都是管理員
+	AdminUserIDs          []string // 可選：靜態 admin 清單（空 = 只靠 Store 的 admins 分頁）
+	BootstrapToken        string   // 秘密指令 token，用於第一位 admin 自我加入
 }
 
 func Load() Config {
@@ -35,6 +36,7 @@ func Load() Config {
 		TursoToken:            os.Getenv("TURSO_AUTH_TOKEN"),
 		PublicBaseURL:         os.Getenv("PUBLIC_BASE_URL"),
 		AdminUserIDs:          parseList(os.Getenv("ADMIN_USER_IDS")),
+		BootstrapToken:        os.Getenv("BOOTSTRAP_TOKEN"),
 	}
 }
 
