@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+service-account*.json
+*.db
+*.sqlite
+/server
+/badminton-bot
+node_modules/
+.DS_Store
+.idea/
+.vscode/

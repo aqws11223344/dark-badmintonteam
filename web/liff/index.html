@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>羽球成績登記</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Noto Sans TC", "PingFang TC", sans-serif;
+    margin: 0; padding: 16px; background: #f7f7f9; color: #222;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: #777; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; margin-top: 12px; }
+  label:first-child { margin-top: 0; }
+  input, select, textarea {
+    width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ddd;
+    border-radius: 8px; background: #fff;
+  }
+  textarea { min-height: 60px; resize: vertical; }
+  button {
+    width: 100%; padding: 14px; font-size: 16px; font-weight: 600;
+    color: #fff; background: #06c755; border: 0; border-radius: 8px; margin-top: 16px;
+  }
+  button.secondary { background: #eee; color: #333; }
+  button:disabled { opacity: .5; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: #222; color: #fff; padding: 10px 16px; border-radius: 24px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .partner-row { display: none; }
+  .partner-row.show { display: block; }
+</style>
+</head>
+<body>
+
+<h1>🏸 羽球成績登記</h1>
+<div class="sub" id="who">正在載入...</div>
+
+<form id="form" class="card">
+  <label>賽事</label>
+  <select name="tournament" required></select>
+
+  <div class="row">
+    <div>
+      <label>年齡組</label>
+      <select name="age_group" required></select>
+    </div>
+    <div>
+      <label>級別</label>
+      <select name="class" required></select>
+    </div>
+  </div>
+
+  <label>項目</label>
+  <select name="event" required></select>
+
+  <div class="partner-row" id="partner-row">
+    <label>搭檔（雙打才需要）</label>
+    <input name="partner" placeholder="例：李大華（隊外可填）" />
+  </div>
+
+  <label>名次</label>
+  <select name="rank" required></select>
+
+  <label>備註（選填）</label>
+  <textarea name="note" placeholder="例：四強敗給 XX 隊"></textarea>
+
+  <button type="submit" id="submit-btn">送出</button>
+  <button type="button" class="secondary" id="another-btn" style="display:none">再新增一筆</button>
+</form>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LIFF_ID_PLACEHOLDER = "YOUR_LIFF_ID"; // build / deploy 時不需要改，前端從 URL 自動讀
+
+const $ = sel => document.querySelector(sel);
+const form = $("#form");
+const partnerRow = $("#partner-row");
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2000);
+}
+
+function fillSelect(name, items, preselect) {
+  const el = form.elements[name];
+  el.innerHTML = items.map(v => `<option value="${v}" ${v===preselect?"selected":""}>${v}</option>`).join("");
+}
+
+let me = null;
+
+async function init() {
+  const params = new URLSearchParams(location.search);
+  const tournamentFromURL = params.get("t") || "";
+
+  // 從 path 或 query 拿 LIFF ID
+  const liffId = window.LIFF_ID || document.querySelector('meta[name="liff-id"]')?.content;
+  try {
+    await liff.init({ liffId: liffId || LIFF_ID_PLACEHOLDER });
+    if (!liff.isLoggedIn()) {
+      liff.login();
+      return;
+    }
+    me = await liff.getProfile();
+    $("#who").textContent = `登記人：${me.displayName}`;
+  } catch (e) {
+    console.error(e);
+    $("#who").textContent = "（無法初始化 LIFF，使用測試模式）";
+    me = { userId: "test-user", displayName: "測試員" };
+  }
+
+  const opts = await fetch("/api/options").then(r => r.json());
+  fillSelect("tournament", opts.tournaments.includes(tournamentFromURL)
+    ? opts.tournaments
+    : (tournamentFromURL ? [tournamentFromURL, ...opts.tournaments] : opts.tournaments),
+    tournamentFromURL || opts.tournaments[0]);
+  fillSelect("age_group", opts.age_groups);
+  fillSelect("class", opts.classes);
+  fillSelect("event", opts.events);
+  fillSelect("rank", opts.ranks);
+
+  togglePartnerRow();
+  form.elements["event"].addEventListener("change", togglePartnerRow);
+}
+
+function togglePartnerRow() {
+  const v = form.elements["event"].value;
+  if (v.includes("雙")) partnerRow.classList.add("show");
+  else partnerRow.classList.remove("show");
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#submit-btn");
+  btn.disabled = true;
+
+  const fd = new FormData(form);
+  const body = {
+    user_id: me.userId,
+    user_name: me.displayName,
+    tournament: fd.get("tournament"),
+    age_group: fd.get("age_group"),
+    class: fd.get("class"),
+    event: fd.get("event"),
+    partner: fd.get("partner") || "",
+    rank: fd.get("rank"),
+    note: fd.get("note") || "",
+  };
+
+  try {
+    const resp = await fetch("/api/results", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    toast("✅ 已送出");
+    $("#another-btn").style.display = "block";
+    btn.textContent = "已送出";
+  } catch (err) {
+    console.error(err);
+    toast("❌ 送出失敗：" + err.message);
+    btn.disabled = false;
+  }
+});
+
+$("#another-btn").addEventListener("click", () => {
+  // 保留 tournament / age / class，清空項目/搭檔/名次/備註
+  ["partner", "note"].forEach(n => form.elements[n].value = "");
+  $("#submit-btn").disabled = false;
+  $("#submit-btn").textContent = "送出";
+  $("#another-btn").style.display = "none";
+});
+
+init();
+</script>
+</body>
+</html>
