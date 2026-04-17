@@ -96,7 +96,13 @@ gcloud run deploy "$SERVICE" \
     --set-secrets "LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,LINE_CHANNEL_TOKEN=LINE_CHANNEL_TOKEN:latest,LIFF_ID=LIFF_ID:latest,GOOGLE_SHEETS_ID=GOOGLE_SHEETS_ID:latest,TURSO_DATABASE_URL=TURSO_DATABASE_URL:latest,TURSO_AUTH_TOKEN=TURSO_AUTH_TOKEN:latest,/secrets/sa.json=SA_JSON:latest" \
     --quiet
 
-URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format="value(status.url)")
+# 優先使用新格式 URL（{service}-{project_number}.{region}.run.app），後備 status.url
+URL="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
+if ! curl -sf -o /dev/null -w "%{http_code}" "$URL" 2>/dev/null | grep -q "^[23]"; then
+    # 新 URL 拿不到 2xx/3xx 就退回 status.url
+    FALLBACK=$(gcloud run services describe "$SERVICE" --region "$REGION" --format="value(status.url)")
+    [ -n "$FALLBACK" ] && URL="$FALLBACK"
+fi
 
 echo ""
 echo "=================================================="
