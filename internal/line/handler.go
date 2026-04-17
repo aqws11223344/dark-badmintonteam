@@ -157,26 +157,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		h.reply(replyToken, "🏸 成績登記\n👉 "+url+"\n\n從下拉選擇賽事後填寫")
 
 	case matchesAny(text, "/所有連結", "/links", "/all"):
-		if h.cfg.LIFFID == "" {
-			h.reply(replyToken, "尚未設定 LIFF_ID")
-			return
-		}
-		tournaments, err := h.cfg.Store.ListTournaments(ctx)
-		if err != nil {
-			h.reply(replyToken, "❌ 查詢失敗："+err.Error())
-			return
-		}
-		if len(tournaments) == 0 {
-			h.reply(replyToken, "（目前沒有賽事）\n管理員用 /新增賽事 或 /開單 新增")
-			return
-		}
-		lines := []string{"🏸 目前可登記的賽事："}
-		for _, t := range tournaments {
-			lines = append(lines, "")
-			lines = append(lines, "▪️ "+t)
-			lines = append(lines, "👉 https://liff.line.me/"+h.cfg.LIFFID+"?t="+t)
-		}
-		h.reply(replyToken, strings.Join(lines, "\n"))
+		h.sendTournamentLinks(ctx, replyToken)
 
 	case strings.HasPrefix(text, "/開單") || strings.HasPrefix(text, "/open"):
 		name, _ := stripAnyPrefix(text, "/開單", "/open")
@@ -294,16 +275,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		h.reply(replyToken, strings.Join(lines, "\n"))
 
 	case matchesAny(text, "/賽事列表", "/list", "/tournaments"):
-		list, err := h.cfg.Store.ListTournaments(ctx)
-		if err != nil {
-			h.reply(replyToken, "❌ 查詢失敗："+err.Error())
-			return
-		}
-		if len(list) == 0 {
-			h.reply(replyToken, "（目前沒有賽事）\n用「/新增賽事 名稱」新增")
-			return
-		}
-		h.reply(replyToken, "📋 目前賽事列表：\n"+strings.Join(list, "\n"))
+		h.sendTournamentLinks(ctx, replyToken)
 
 	case matchesAny(text, "/help", "/說明"):
 		h.reply(replyToken, helpText)
@@ -452,6 +424,30 @@ func (h *Handler) maybeQueryTournament(ctx context.Context, replyToken, name str
 			line += " / 搭檔:" + r.Partner
 		}
 		lines = append(lines, line)
+	}
+	h.reply(replyToken, strings.Join(lines, "\n"))
+}
+
+// sendTournamentLinks 列出所有賽事 + 各自 LIFF 連結（/賽事列表 與 /所有連結 共用）。
+func (h *Handler) sendTournamentLinks(ctx context.Context, replyToken string) {
+	if h.cfg.LIFFID == "" {
+		h.reply(replyToken, "尚未設定 LIFF_ID")
+		return
+	}
+	tournaments, err := h.cfg.Store.ListTournaments(ctx)
+	if err != nil {
+		h.reply(replyToken, "❌ 查詢失敗："+err.Error())
+		return
+	}
+	if len(tournaments) == 0 {
+		h.reply(replyToken, "（目前沒有賽事）\n管理員用 /新增賽事 或 /開單 新增")
+		return
+	}
+	lines := []string{"🏸 目前可登記的賽事："}
+	for _, t := range tournaments {
+		lines = append(lines, "")
+		lines = append(lines, "▪️ "+t)
+		lines = append(lines, "👉 https://liff.line.me/"+h.cfg.LIFFID+"?t="+t)
 	}
 	h.reply(replyToken, strings.Join(lines, "\n"))
 }
