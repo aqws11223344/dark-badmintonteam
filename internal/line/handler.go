@@ -171,6 +171,8 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 			log.Printf("add tournament on /開單 failed: %v", err)
 		}
 		h.replyWithLIFF(replyToken, name)
+		// 同步廣播給所有加 bot 好友的人（每位好友消耗 1 則月額度）
+		go h.broadcastTournament(name)
 
 	case strings.HasPrefix(text, "/新增賽事"):
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/新增賽事"))
@@ -395,6 +397,24 @@ func (h *Handler) maybeQueryTournament(ctx context.Context, replyToken, name str
 		lines = append(lines, line)
 	}
 	h.reply(replyToken, strings.Join(lines, "\n"))
+}
+
+// broadcastTournament 推播某場比賽的登記連結給所有加 bot 好友的人。
+// 注意：每位好友消耗 1 則推播額度（LINE 輕用量方案每月 200 則）。
+func (h *Handler) broadcastTournament(tournament string) {
+	if h.cfg.LIFFID == "" {
+		return
+	}
+	url := fmt.Sprintf("https://liff.line.me/%s?t=%s", h.cfg.LIFFID, tournament)
+	msg := fmt.Sprintf("📋 %s 成績登記開始\n👉 %s\n\n（每人可填多項，點連結開始）", tournament, url)
+	_, err := h.bot.Broadcast(&messaging_api.BroadcastRequest{
+		Messages: []messaging_api.MessageInterface{
+			messaging_api.TextMessage{Text: msg},
+		},
+	}, "")
+	if err != nil {
+		log.Printf("broadcast failed: %v", err)
+	}
 }
 
 func (h *Handler) replyWithLIFF(replyToken, tournament string) {
