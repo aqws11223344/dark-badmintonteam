@@ -1,7 +1,8 @@
-# 每次 push 到 main 時，Cloud Build 會執行這個檔案：
-# 1. build Docker image
-# 2. push 到 Artifact Registry
-# 3. 部署到 Cloud Run（沿用現有的 env vars / secrets 設定）
+# Cloud Build pipeline：push main 觸發
+# 優化：
+#   1. 每次 build 前先 pull latest image 當 layer cache
+#   2. 用 --cache-from 讓 Docker 重用前次的 mod download 層
+#   3. E2_HIGHCPU_8 機型（8 vCPU），build 快很多
 
 substitutions:
   _REGION: asia-east1
@@ -9,24 +10,33 @@ substitutions:
   _REPO: cloud-run-source-deploy
 
 steps:
-  # 1. Build image
+  # 1. 拉取上一次的 image 當快取（第一次沒有會失敗，忽略）
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker pull ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest || exit 0
+
+  # 2. Build（利用 cache-from）
   - name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --cache-from=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest
       - -t
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:$SHORT_SHA
       - -t
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest
       - .
 
-  # 2. Push image
+  # 3. Push
   - name: gcr.io/cloud-builders/docker
     args:
       - push
       - --all-tags
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}
 
-  # 3. Deploy to Cloud Run（只換 image，保留既有 env / secrets / IAM）
+  # 4. Deploy 到 Cloud Run（只換 image，保留既有 env / secrets）
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
@@ -43,3 +53,4 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
