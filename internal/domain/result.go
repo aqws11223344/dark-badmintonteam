@@ -30,6 +30,6 @@ func DefaultOptions() Options {
 		Tournaments: []string{"2026清晨杯", "2026春季聯賽", "2026縣長盃"},
 		Categories:  []string{"公開組", "青年組", "大專組", "甲組", "乙組"},
 		Events:      []string{"男單", "女單", "男雙", "女雙", "混雙", "團體"},
-		Ranks:       []string{"冠軍", "亞軍", "季軍", "四強", "八強", "十六強", "未晉級"},
+		Ranks:       []string{"冠軍", "亞軍", "季軍", "四強", "八強", "十六強"},
 	}
 }

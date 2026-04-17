@@ -212,4 +212,121 @@ func rowToResult(row []any) domain.MatchResult {
 	}
 }
 
+// ===== 賽事列表（存在 "tournaments" 分頁的 A 欄）=====
+
+const tournamentsTab = "tournaments"
+
+func (s *Store) ensureTournamentsTab(ctx context.Context) error {
+	s.mu.Lock()
+	if s.known[tournamentsTab] {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
+	meta, err := s.svc.Spreadsheets.Get(s.sheetID).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("get spreadsheet: %w", err)
+	}
+	exists := false
+	for _, sh := range meta.Sheets {
+		if sh.Properties.Title == tournamentsTab {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		_, err := s.svc.Spreadsheets.BatchUpdate(s.sheetID, &sheets.BatchUpdateSpreadsheetRequest{
+			Requests: []*sheets.Request{{
+				AddSheet: &sheets.AddSheetRequest{
+					Properties: &sheets.SheetProperties{Title: tournamentsTab},
+				},
+			}},
+		}).Context(ctx).Do()
+		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("add tournaments sheet: %w", err)
+		}
+		// 寫 header
+		_, _ = s.svc.Spreadsheets.Values.Update(s.sheetID, tournamentsTab+"!A1",
+			&sheets.ValueRange{Values: [][]any{{"賽事"}}}).
+			ValueInputOption("RAW").Context(ctx).Do()
+	}
+	s.mu.Lock()
+	s.known[tournamentsTab] = true
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Store) ListTournaments(ctx context.Context) ([]string, error) {
+	if err := s.ensureTournamentsTab(ctx); err != nil {
+		return nil, err
+	}
+	resp, err := s.svc.Spreadsheets.Values.Get(s.sheetID, tournamentsTab+"!A2:A").Context(ctx).Do()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, row := range resp.Values {
+		if len(row) == 0 {
+			continue
+		}
+		if v, ok := row[0].(string); ok && v != "" {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) AddTournament(ctx context.Context, name string) error {
+	if err := s.ensureTournamentsTab(ctx); err != nil {
+		return err
+	}
+	existing, err := s.ListTournaments(ctx)
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if e == name {
+			return nil // 已存在，不重複加
+		}
+	}
+	_, err = s.svc.Spreadsheets.Values.Append(s.sheetID, tournamentsTab+"!A:A",
+		&sheets.ValueRange{Values: [][]any{{name}}}).
+		ValueInputOption("RAW").InsertDataOption("INSERT_ROWS").Context(ctx).Do()
+	return err
+}
+
+func (s *Store) RemoveTournament(ctx context.Context, name string) error {
+	if err := s.ensureTournamentsTab(ctx); err != nil {
+		return err
+	}
+	existing, err := s.ListTournaments(ctx)
+	if err != nil {
+		return err
+	}
+	var filtered []string
+	for _, e := range existing {
+		if e != name {
+			filtered = append(filtered, e)
+		}
+	}
+	// Clear 後重寫（SQLite 沒有，Sheets 用 Clear + Update）
+	_, err = s.svc.Spreadsheets.Values.Clear(s.sheetID, tournamentsTab+"!A2:A",
+		&sheets.ClearValuesRequest{}).Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	values := make([][]any, 0, len(filtered))
+	for _, v := range filtered {
+		values = append(values, []any{v})
+	}
+	_, err = s.svc.Spreadsheets.Values.Update(s.sheetID, tournamentsTab+"!A2:A",
+		&sheets.ValueRange{Values: values}).
+		ValueInputOption("RAW").Context(ctx).Do()
+	return err
+}
+
 func (s *Store) Close() error { return nil }

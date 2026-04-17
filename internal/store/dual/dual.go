@@ -38,6 +38,30 @@ func (s *Store) ListByTournament(ctx context.Context, t string) ([]domain.MatchR
 	return s.primary.ListByTournament(ctx, t)
 }
 
+func (s *Store) ListTournaments(ctx context.Context) ([]string, error) {
+	return s.primary.ListTournaments(ctx)
+}
+
+func (s *Store) AddTournament(ctx context.Context, name string) error {
+	if err := s.primary.AddTournament(ctx, name); err != nil {
+		return err
+	}
+	if err := s.mirror.AddTournament(ctx, name); err != nil {
+		log.Printf("dual store: mirror add tournament failed: %v", err)
+	}
+	return nil
+}
+
+func (s *Store) RemoveTournament(ctx context.Context, name string) error {
+	if err := s.primary.RemoveTournament(ctx, name); err != nil {
+		return err
+	}
+	if err := s.mirror.RemoveTournament(ctx, name); err != nil {
+		log.Printf("dual store: mirror remove tournament failed: %v", err)
+	}
+	return nil
+}
+
 func (s *Store) Close() error {
 	if err := s.primary.Close(); err != nil {
 		return err

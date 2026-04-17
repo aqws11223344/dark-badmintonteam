@@ -43,7 +43,7 @@
 
 <h1>🏸 羽球成績登記</h1>
 <div class="sub" id="who">正在載入...</div>
-<div class="sub" style="color:#06c755;font-weight:500;">💡 有下拉建議的欄位（賽事、組別），若清單沒有你要的可直接輸入</div>
+<div class="sub" style="color:#06c755;font-weight:500;">💡 組別若清單沒有你要的可直接輸入；賽事只能從下拉選單選</div>
 
 <form id="form" class="card">
   <label>姓名 <span style="color:#e00">*</span></label>
@@ -51,8 +51,8 @@
   <div class="hint">可以填本名或球場綽號</div>
 
   <label>賽事 <span style="color:#e00">*</span></label>
-  <input name="tournament" list="tournaments" required placeholder="例：清晨盃" />
-  <datalist id="tournaments"></datalist>
+  <select name="tournament" required></select>
+  <div class="hint">由群組管理員用 LINE 指令維護清單</div>
 
   <label>組別</label>
   <input name="category" list="categories" placeholder="例：公開" />
@@ -126,10 +126,18 @@ async function init() {
     me = { userId: "test-user", displayName: "測試員" };
   }
 
-  if (tournamentFromURL) form.elements["tournament"].value = tournamentFromURL;
-  fillDatalist("tournaments", opts.tournaments);
-  fillDatalist("categories", opts.categories);
+  // 賽事改成 <select>：若清單為空提示訊息；若 URL 帶的賽事不在清單內也塞進去讓使用者可選
+  let tournaments = opts.tournaments || [];
+  if (tournamentFromURL && !tournaments.includes(tournamentFromURL)) {
+    tournaments = [tournamentFromURL, ...tournaments];
+  }
+  if (tournaments.length === 0) {
+    form.elements["tournament"].innerHTML = '<option value="">（管理員尚未新增賽事）</option>';
+  } else {
+    fillSelect("tournament", tournaments, tournamentFromURL || tournaments[0]);
+  }
 
+  fillDatalist("categories", opts.categories);
   fillSelect("event", opts.events);
   fillSelect("rank", opts.ranks);
 

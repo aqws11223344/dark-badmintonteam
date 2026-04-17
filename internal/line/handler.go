@@ -2,6 +2,7 @@
 package line
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +70,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleText(replyToken, text string) {
 	text = strings.TrimSpace(text)
+	ctx := context.Background()
 
 	switch {
 	case strings.HasPrefix(text, "/開單"):
@@ -76,23 +79,119 @@ func (h *Handler) handleText(replyToken, text string) {
 			h.reply(replyToken, "用法：/開單 2026清晨杯")
 			return
 		}
+		// 自動加入賽事列表（若不存在）
+		if err := h.cfg.Store.AddTournament(ctx, name); err != nil {
+			log.Printf("add tournament on /開單 failed: %v", err)
+		}
 		h.replyWithLIFF(replyToken, name)
 
-	case text == "/我的成績":
-		h.reply(replyToken, "（此功能需在個人聊天使用，將於下一版加入）")
+	case strings.HasPrefix(text, "/新增賽事"):
+		name := strings.TrimSpace(strings.TrimPrefix(text, "/新增賽事"))
+		if name == "" {
+			h.reply(replyToken, "用法：/新增賽事 2026清晨杯")
+			return
+		}
+		if err := h.cfg.Store.AddTournament(ctx, name); err != nil {
+			h.reply(replyToken, "❌ 新增失敗："+err.Error())
+			return
+		}
+		h.reply(replyToken, "✅ 已新增賽事：\n"+name)
+
+	case strings.HasPrefix(text, "/刪除賽事"):
+		name := strings.TrimSpace(strings.TrimPrefix(text, "/刪除賽事"))
+		if name == "" {
+			h.reply(replyToken, "用法：/刪除賽事 2026清晨杯")
+			return
+		}
+		if err := h.cfg.Store.RemoveTournament(ctx, name); err != nil {
+			h.reply(replyToken, "❌ 刪除失敗："+err.Error())
+			return
+		}
+		h.reply(replyToken, "🗑 已刪除賽事：\n"+name)
+
+	case text == "/賽事列表":
+		list, err := h.cfg.Store.ListTournaments(ctx)
+		if err != nil {
+			h.reply(replyToken, "❌ 查詢失敗："+err.Error())
+			return
+		}
+		if len(list) == 0 {
+			h.reply(replyToken, "（目前沒有賽事）\n用「/新增賽事 名稱」新增")
+			return
+		}
+		h.reply(replyToken, "📋 目前賽事列表：\n"+strings.Join(list, "\n"))
 
 	case text == "/help" || text == "/說明":
 		h.reply(replyToken, helpText)
 
 	default:
-		// 群組裡其他訊息不回，避免洗版
+		// 可能是 /<賽事名稱> 查詢
+		if strings.HasPrefix(text, "/") && !strings.Contains(text, " ") {
+			name := strings.TrimPrefix(text, "/")
+			if name != "" {
+				h.maybeQueryTournament(ctx, replyToken, name)
+			}
+		}
+		// 其他訊息不回
 	}
 }
 
-const helpText = `🏸 羽球成績 Bot 用法：
-/開單 賽事名稱   → 發起一場賽事的成績登記
-/我的成績        → 查看你的成績紀錄
-/說明            → 顯示這份說明`
+const helpText = `🏸 羽球成績 Bot 指令：
+
+/開單 賽事名稱    → 發起成績登記（會自動加入列表）
+/新增賽事 XXX     → 新增賽事到表單下拉
+/刪除賽事 XXX     → 從表單下拉移除
+/賽事列表         → 顯示目前所有賽事
+/賽事名稱         → 查詢該場比賽所有得獎紀錄
+/說明             → 顯示這份說明
+
+例：/清晨盃`
+
+// maybeQueryTournament 如果 name 是已存在的賽事，回傳該場比賽所有紀錄；否則靜默。
+func (h *Handler) maybeQueryTournament(ctx context.Context, replyToken, name string) {
+	tournaments, err := h.cfg.Store.ListTournaments(ctx)
+	if err != nil {
+		return
+	}
+	found := false
+	for _, t := range tournaments {
+		if t == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return // 不是已註冊的賽事，靜默
+	}
+
+	results, err := h.cfg.Store.ListByTournament(ctx, name)
+	if err != nil {
+		h.reply(replyToken, "❌ 查詢失敗："+err.Error())
+		return
+	}
+	if len(results) == 0 {
+		h.reply(replyToken, "📋 "+name+"\n（目前沒有紀錄）")
+		return
+	}
+
+	const maxLines = 40 // LINE 訊息長度保護
+	lines := []string{"🏆 " + name + " 成績紀錄（" + strconv.Itoa(len(results)) + " 筆）", "───────────"}
+	for i, r := range results {
+		if i >= maxLines {
+			lines = append(lines, fmt.Sprintf("...（另有 %d 筆，請至試算表檢視）", len(results)-maxLines))
+			break
+		}
+		line := fmt.Sprintf("• %s｜%s %s", r.PlayerName, r.Event, r.Rank)
+		if r.Category != "" {
+			line += "（" + r.Category + "）"
+		}
+		if r.Partner != "" {
+			line += " / 搭檔:" + r.Partner
+		}
+		lines = append(lines, line)
+	}
+	h.reply(replyToken, strings.Join(lines, "\n"))
+}
 
 func (h *Handler) replyWithLIFF(replyToken, tournament string) {
 	if h.cfg.LIFFID == "" {
@@ -119,10 +218,17 @@ func (h *Handler) reply(replyToken, text string) {
 // ===== LIFF 表單後端 API =====
 
 // GetOptions 提供下拉選單來源 + LIFF ID 給前端。
+// 賽事從 Store 動態讀取（管理員透過 LINE 指令維護）。
 func (h *Handler) GetOptions(c *gin.Context) {
+	opts := domain.DefaultOptions()
+	if stored, err := h.cfg.Store.ListTournaments(c.Request.Context()); err == nil {
+		opts.Tournaments = stored
+	} else {
+		log.Printf("list tournaments failed: %v", err)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"liff_id": h.cfg.LIFFID,
-		"options": domain.DefaultOptions(),
+		"options": opts,
 	})
 }
 

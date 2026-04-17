@@ -1,5 +1,4 @@
 // Package turso 的 libsql driver 尚未編入此 build。
-// 之後要啟用時：把 libsql-client-go 加回 go.mod，並恢復完整實作（見 git history）。
 package turso
 
 import (
@@ -25,6 +24,18 @@ func (s *Store) ListByUser(_ context.Context, _ string) ([]domain.MatchResult, e
 
 func (s *Store) ListByTournament(_ context.Context, _ string) ([]domain.MatchResult, error) {
 	return nil, errors.New("turso disabled")
+}
+
+func (s *Store) ListTournaments(_ context.Context) ([]string, error) {
+	return nil, errors.New("turso disabled")
+}
+
+func (s *Store) AddTournament(_ context.Context, _ string) error {
+	return errors.New("turso disabled")
+}
+
+func (s *Store) RemoveTournament(_ context.Context, _ string) error {
+	return errors.New("turso disabled")
 }
 
 func (s *Store) Close() error { return nil }
