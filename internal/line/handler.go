@@ -127,6 +127,14 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 		}
 		h.reply(replyToken, "你的 LINE User ID：\n"+userID)
 
+	case text == "/登記" || text == "/add":
+		if h.cfg.LIFFID == "" {
+			h.reply(replyToken, "尚未設定 LIFF_ID")
+			return
+		}
+		url := fmt.Sprintf("https://liff.line.me/%s", h.cfg.LIFFID)
+		h.reply(replyToken, "🏸 成績登記\n👉 "+url+"\n\n從下拉選擇賽事後填寫")
+
 	case strings.HasPrefix(text, "/開單"):
 		name := strings.TrimSpace(strings.TrimPrefix(text, "/開單"))
 		if name == "" {
@@ -267,6 +275,7 @@ func (h *Handler) handleText(replyToken, text, userID string) {
 
 const helpText = `🏸 羽球成績 Bot 指令：
 
+/登記 或 /add     → 取得成績登記連結
 /賽事列表         → 顯示目前所有賽事
 /賽事名稱         → 查詢該場比賽所有得獎紀錄（例：/清晨盃）
 /我的ID           → 顯示你的 LINE User ID
