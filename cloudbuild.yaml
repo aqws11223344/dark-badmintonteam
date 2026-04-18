@@ -53,4 +53,5 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: E2_HIGHCPU_8
+  # machineType 不指定 = 用預設 e2-standard-1（每日 120 分鐘免費）
+  # 想加速可改 E2_HIGHCPU_8（快很多但付費 ~$0.3/次）
