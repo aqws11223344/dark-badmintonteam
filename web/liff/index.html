@@ -63,8 +63,9 @@
   <select name="event" required></select>
 
   <div class="partner-row" id="partner-row">
-    <label>搭檔</label>
-    <input name="partner" placeholder="例：李大華（隊外也可填）" />
+    <label id="partner-label">搭檔</label>
+    <div id="members-container"></div>
+    <button type="button" id="add-member-btn" style="display:none; background:#eee; color:#333; padding:8px; margin-top:6px;">+ 新增隊員</button>
   </div>
 
   <label>名次 <span style="color:#e00">*</span></label>
@@ -147,9 +148,48 @@ async function init() {
 
 function togglePartnerRow() {
   const v = form.elements["event"].value;
-  if (v.includes("雙")) partnerRow.classList.add("show");
-  else partnerRow.classList.remove("show");
+  const isDouble = v.includes("雙");
+  const isTeam = v === "團體";
+  const partnerLabel = $("#partner-label");
+  const addBtn = $("#add-member-btn");
+  const container = $("#members-container");
+
+  if (isDouble) {
+    partnerRow.classList.add("show");
+    partnerLabel.textContent = "搭檔";
+    addBtn.style.display = "none";
+    container.innerHTML = '<input class="member-input" placeholder="例：李大華（隊外也可填）" />';
+  } else if (isTeam) {
+    partnerRow.classList.add("show");
+    partnerLabel.textContent = "隊員";
+    addBtn.style.display = "block";
+    if (container.children.length === 0) {
+      addMemberInput();
+      addMemberInput(); // 預設兩格
+    }
+  } else {
+    partnerRow.classList.remove("show");
+    container.innerHTML = "";
+    addBtn.style.display = "none";
+  }
 }
+
+function addMemberInput() {
+  const container = $("#members-container");
+  const idx = container.children.length + 1;
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = "display:flex; gap:6px; margin-bottom:6px;";
+  wrapper.innerHTML = `
+    <input class="member-input" placeholder="隊員 ${idx}" style="flex:1;" />
+    <button type="button" class="remove-member" style="background:#fee; color:#c00; padding:6px 12px; width:auto;">×</button>
+  `;
+  wrapper.querySelector(".remove-member").addEventListener("click", () => {
+    wrapper.remove();
+  });
+  container.appendChild(wrapper);
+}
+
+document.getElementById("add-member-btn").addEventListener("click", addMemberInput);
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -157,6 +197,13 @@ form.addEventListener("submit", async (e) => {
   btn.disabled = true;
 
   const fd = new FormData(form);
+
+  // 蒐集隊員/搭檔（雙打 1 個，團體多個）
+  const members = Array.from(document.querySelectorAll(".member-input"))
+    .map(el => el.value.trim())
+    .filter(v => v !== "");
+  const partner = members.join(", ");
+
   const body = {
     user_id: me.userId,
     user_name: me.displayName,
@@ -164,7 +211,7 @@ form.addEventListener("submit", async (e) => {
     tournament: (fd.get("tournament") || "").trim(),
     category: (fd.get("category") || "").trim(),
     event: fd.get("event"),
-    partner: (fd.get("partner") || "").trim(),
+    partner: partner,
     rank: fd.get("rank"),
     note: (fd.get("note") || "").trim(),
   };
@@ -188,9 +235,10 @@ form.addEventListener("submit", async (e) => {
 
 $("#another-btn").addEventListener("click", () => {
   // 保留姓名、賽事、組別；清空其他
-  ["partner", "note"].forEach(n => form.elements[n].value = "");
+  form.elements["note"].value = "";
   form.elements["event"].selectedIndex = 0;
   form.elements["rank"].selectedIndex = 0;
+  $("#members-container").innerHTML = ""; // 清掉所有搭檔/隊員
   togglePartnerRow();
   $("#submit-btn").disabled = false;
   $("#submit-btn").textContent = "送出";
